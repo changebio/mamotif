@@ -1,0 +1,350 @@
+#!/usr/bin/env python
+# Copyright @ 2014, 2015 Jiawei Wang <jerryeah@gmail.com>, Zhen Shao <shao@enders.tch.harvard.edu>
+#
+# Licensed under the GPL License, Version 3.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#   http://www.gnu.org/copyleft/gpl.html
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""Description: MAmotif integrative analysis: find cell-specific regulators
+"""
+# -----------------------------------
+#  modules
+# -----------------------------------
+import os
+import os.path
+from optparse import OptionParser
+from optparse import OptionGroup
+import pandas as pd
+import MotifScan.motifscan_general as motifscan_general
+import MAmotif.MAcore as MAcore
+import re as reg
+
+# -----------------------------------
+# main functions
+# ----------------------------------
+
+
+def main():
+    """The pipeline of find cell-specific regulators
+    """
+
+    # ------------------------------------
+    # interpret the options
+    # ------------------------------------
+    parser = prepare_optparser()
+    (option, args) = parser.parse_args()
+
+    if not (option.manorm_result and option.genome_name and option.motif):
+        parser.print_help()
+        exit()
+    if option.gene:
+        gene_path = option.gene
+    else:
+        gene_path = None
+    genome_name = option.genome_name
+    manorm_result = option.manorm_result
+    motif_path = option.motif
+    motif_list_path = option.motif_list
+    random_times = option.random_times
+    peak_length = option.peak_length
+    region = option.region
+    up = option.upstream
+    down = option.downstream
+    is_enrichment = option.is_enrichment
+    extract_target_site = option.extract_target_site
+
+    if not option.output:
+        overall_output_dir = 'cell_specific_analysis_on_%s' % manorm_result.strip('/').split('/')[-1]
+    else:
+        overall_output_dir = option.output
+    plot_dir = '%s/plot' % overall_output_dir
+    if not os.path.exists(overall_output_dir):
+        os.mkdir(overall_output_dir)
+        os.mkdir(plot_dir)
+
+    # constant variables for MAmotif
+    fc_cutoff = 1.3
+    pvalue_cutoff = 0.01
+    pcc_cutoff = 0.75
+
+    # -----------------------------------------------------------------
+    # identify three peak files: one common peak and two biased peaks
+    # -----------------------------------------------------------------
+    print 'Step I. Compiling MAnorm result...'
+    # identify the peak file in MAnorm result directory
+    common_peak_path, a_unique_peak_path, b_unique_peak_path = '', '', ''
+    for result_file in os.listdir('%s/' % manorm_result):
+        if reg.search(r'all_peak_MAvalues', result_file):
+            total_peak_file = '%s/%s' % (manorm_result, result_file)
+    total_peak = pd.read_csv(total_peak_file, '\t',
+                             names=['chr',
+                                    'start',
+                                    'end',
+                                    'summit',
+                                    'MAnorm_Mvalue',
+                                    'MAnorm_Avalue',
+                                    'MAnorm_Pvalue',
+                                    'common_or_unique',
+                                    'A_read_density',
+                                    'B_read_density'],
+                             skiprows=1)
+    grouped = total_peak.groupby('common_or_unique')
+    if len(grouped) != 3:
+        print 'Invalid MAnorm result: There should be three type of peaks \
+               (common peaks, A-specific peaks and B-specific peaks) \
+               contained in MAnorm result. Exit...'
+        exit(3)
+
+    # prepare the common and biased peak files.
+    for name, group in grouped:
+        # common peaks
+        if reg.search(r'.*_common_peak', name):
+            common_peak_path = '%s/.%s.txt' % (overall_output_dir, name)
+            group.to_csv(common_peak_path,
+                         sep='\t',
+                         index=False,
+                         columns=['chr', 'start', 'end', 'summit', 'MAnorm_Mvalue'],
+                         header=False)
+            n_common = len(group)
+        # biased peaks
+        if reg.search(r'.*_unique', name):
+            if group['MAnorm_Mvalue'].mean() > 0:  # A biased
+                a_unique_peak_path = '%s/.%s.txt' % (overall_output_dir, name)
+                group.to_csv(a_unique_peak_path,
+                             sep='\t',
+                             index=False,
+                             columns=['chr', 'start', 'end', 'summit', 'MAnorm_Mvalue'],
+                             header=False)
+                n_a_uniq = len(group)
+            else:  # b biased
+                b_unique_peak_path = '%s/.%s.txt' % (overall_output_dir, name)
+                group.to_csv(b_unique_peak_path,
+                             sep='\t',
+                             index=False,
+                             columns=['chr', 'start', 'end', 'summit', 'MAnorm_Mvalue'],
+                             header=False)
+                n_b_uniq = len(group)
+
+    # -----------------------------------------------------------------
+    #  MotifScan on above identified peaks.
+    # -----------------------------------------------------------------
+    # prepare the MotifScan output directory
+    a_unique = os.path.splitext(os.path.basename(a_unique_peak_path))[0].lstrip('.')
+    b_unique = os.path.splitext(os.path.basename(b_unique_peak_path))[0].lstrip('.')
+    common_output_dir = '%s/motifscan_on_common_peaks' % overall_output_dir
+    a_peak_output_dir = '%s/motifscan_on_%s' % (overall_output_dir, a_unique)
+    b_peak_output_dir = '%s/motifscan_on_%s' % (overall_output_dir, b_unique)
+    print 'Common: %s peaks' % n_common
+    print 'Sample A: %s... %s peaks' % (a_unique, n_a_uniq)
+    print 'Sample B: %s... %s peaks' % (b_unique, n_b_uniq)
+
+    # MotifScan
+    if is_enrichment:
+        print '\nStep II: motif discovery on A B common peaks...'
+        [common_peak_result, common_rnd_result, common_enrich_result] = \
+            motifscan_general.motifscan_general(common_peak_path, "manorm", motif_path, motif_list_path,
+                                                genome_name, gene_path, random_times,
+                                                peak_length, common_output_dir,
+                                                region, up, down, is_enrichment, extract_target_site)
+
+        print '\nStep III: find regulators on A-specific peaks...'
+        [a_peak_result, a_rnd_result, a_enrich_result] = \
+            motifscan_general.motifscan_general(a_unique_peak_path, 'manorm', motif_path, motif_list_path,
+                                                genome_name, gene_path, random_times,
+                                                peak_length, a_peak_output_dir,
+                                                region, up, down, is_enrichment, extract_target_site)
+
+        print '\nStep IV: find regulators on B-specific peaks...'
+        [b_peak_result, b_rnd_result, b_enrich_result] = \
+            motifscan_general.motifscan_general(b_unique_peak_path, 'manorm', motif_path, motif_list_path,
+                                                genome_name, gene_path, random_times,
+                                                peak_length, b_peak_output_dir,
+                                                region, up, down, is_enrichment, extract_target_site)
+
+        # ----------------------------------------------------------------------------------------------
+        # Integrative Analysis
+        # -----------------------------------------------------------------------------------------------
+        # [total_peak_result, total_rnd_result, total_enrich_result] = \
+        #     motifscan_general.merge_two_results(common_peak_result,
+        #                                         a_peak_result,
+        #                                         common_rnd_result,
+        #                                         a_rnd_result,
+        #                                         common_enrich_result)
+        # [total_peak_result, total_rnd_result, total_enrich_result] = \
+        #     motifscan_general.merge_two_results(total_peak_result,
+        #                                         b_peak_result,
+        #                                         total_rnd_result,
+        #                                         b_rnd_result,
+        #                                         common_enrich_result)
+
+        # MAcore.fc_plot(total_peak_result, total_rnd_result, plot_dir)
+        # core.peak_set_enrichment_analysis(total_peak_result,plot_dir)
+        # ------------------------------ ----------------------------------------------------------
+        #  cluster
+        # -----------------------------------------------------------------------------------------
+        print '\n\nStep V: clustering and testing...'
+        # positive
+        'Clustering on %s specific peaks...' % a_unique
+        [positive_peak_result, positive_rnd_result, positive_enrich_result] = \
+            motifscan_general.merge_two_results(common_peak_result,
+                                                a_peak_result,
+                                                common_rnd_result,
+                                                a_rnd_result,
+                                                common_enrich_result)
+        positive_test_result = MAcore.peak_result_test(positive_peak_result, positive_rnd_result)
+
+        MAcore.h_cluster(positive_peak_result,
+                         positive_test_result,
+                         '%s/%s_specific' % (overall_output_dir, a_unique),
+                         fc_cutoff,
+                         pvalue_cutoff,
+                         pcc_cutoff)
+        # negative
+        'Clustering on %s specific peaks...' % b_unique
+        [negative_peak_result, negative_rnd_result, negative_enrich_result] = \
+            motifscan_general.merge_two_results(common_peak_result,
+                                                b_peak_result,
+                                                common_rnd_result,
+                                                b_rnd_result,
+                                                common_enrich_result)
+        negative_test_result = MAcore.peak_result_test(negative_peak_result, negative_rnd_result, True)
+        MAcore.h_cluster(negative_peak_result,
+                         negative_test_result,
+                         '%s/%s_specific' % (overall_output_dir, b_unique),
+                         fc_cutoff,
+                         pvalue_cutoff,
+                         pcc_cutoff,
+                         True)
+
+        # ----------------------------------------------------------------------------------------------------
+        # t test and ranksum test
+        # -------------------------------------------------------------------------------------------------------
+    else:  # not enrichment
+        print '\nStep II: motif discovery on A B common peaks...'
+        common_peak_result = \
+            motifscan_general.motifscan_general(common_peak_path, 'manorm',  motif_path, motif_list_path,
+                                                genome_name, gene_path, random_times,
+                                                peak_length, common_output_dir,
+                                                region, up, down, is_enrichment, extract_target_site)
+        print '\nStep III: motif discovery on A-specific peaks...'
+        a_peak_result = \
+            motifscan_general.motifscan_general(a_unique_peak_path, 'manorm', motif_path, motif_list_path,
+                                                genome_name, gene_path, random_times,
+                                                peak_length, a_peak_output_dir,
+                                                region, up, down, is_enrichment, extract_target_site)
+        print '\nStep IV: motif discovery on B-specific peaks...'
+        b_peak_result = \
+            motifscan_general.motifscan_general(b_unique_peak_path, 'manorm', motif_path, motif_list_path,
+                                                genome_name, gene_path, random_times,
+                                                peak_length, b_peak_output_dir,
+                                                region, up, down, is_enrichment, extract_target_site)
+
+        # ------------------------------ ----------------------------------------------------------
+        #  cluster
+        # -----------------------------------------------------------------------------------------
+        print '\n\nStep V: clustering and testing...'
+        # positive
+        positive_peak_result = \
+            motifscan_general.merge_two_results_no_rnd(common_peak_result, a_peak_result)
+        positive_test_result = MAcore.peak_result_test(positive_peak_result)
+
+        # negative
+        negative_peak_result = \
+            motifscan_general.merge_two_results_no_rnd(common_peak_result, b_peak_result)
+        negative_test_result = MAcore.peak_result_test(negative_peak_result)
+
+    # add comments and output
+    positive_test_result, negative_test_result = MAcore.mark_both_enriched_motifs(positive_test_result, negative_test_result)
+    positive_test_result.to_csv('%s/%s_specific_test_result.csv' % (overall_output_dir, a_unique),
+                                index=False, cols=['Motif',
+                                                   'Target Number',
+                                                   'Mean of Target Mvalue',
+                                                   'SD of Target Mvalue',
+                                                   'Non-Target Number',
+                                                   'Mean of Non-Target Mvalue',
+                                                   'SD of Non-Target Mvalue',
+                                                   'T Statistic',
+                                                   'T Test Pvalue (Right Tailed)',
+                                                   'Corrected T Test Pvalue (Benjamini)',
+                                                   'Z Statistic',
+                                                   'Ranksum Test Pvalue (Right Tailed)',
+                                                   'Corrected Ranksum Test Pvalue (Benjamini)',
+                                                   'Maximal Pvalue',
+                                                   'Comment'])
+
+    negative_test_result.to_csv('%s/%s_specific_test_result.csv' % (overall_output_dir, b_unique),
+                                index=False, cols=['Motif',
+                                                   'Target Number',
+                                                   'Mean of Target Mvalue',
+                                                   'SD of Target Mvalue',
+                                                   'Non-Target Number',
+                                                   'Mean of Non-Target Mvalue',
+                                                   'SD of Non-Target Mvalue',
+                                                   'T Statistic',
+                                                   'T Test Pvalue (Right Tailed)',
+                                                   'Corrected T Test Pvalue (Benjamini)',
+                                                   'Z Statistic',
+                                                   'Ranksum Test Pvalue (Right Tailed)',
+                                                   'Corrected Ranksum Test Pvalue (Benjamini)',
+                                                   'Maximal Pvalue',
+                                                   'Comment'])
+
+
+def prepare_optparser():
+    usage = "usage: %prog <-p MAnorm_result_dir> <-g genome> <-m motif> [options]"
+    description = "%prog 1.0.2 -- Find cell-specific regulators from MAmorm result."
+    optparser = OptionParser(version="%prog 1.0.2", description=description, usage=usage, add_help_option=False)
+    optparser.add_option("-h", "--help", action="help", help="show this help message and exit")
+    optparser.add_option("-p", "--mamorm", dest="manorm_result", type="string",
+                         help="The MAnorm result directory. Required.")
+    optparser.add_option("-m", "--motif", dest="motif", type="string",
+                         help="compiled motif PWM file. Motif matrix file including pvalue cutoff and perfect ratio. Required.")
+    optparser.add_option("-g", "--genome", dest="genome_name", type="string",
+                         help="genome identifier. Please use UCSC genome identifier if possible. Now MotifScan pre-compiled the following genome,  hg19,  mm9,  tair10. You can specify other genomes by command MotifCompile. Required.")
+    optparser.add_option("-G", "--gs", dest="genome_sequence", type="string",
+                         help="genome sequence file(.fa or .fastq). If the genome information is not provided,  you should specify the genome sequence file (.fa) by this option.")
+    optparser.add_option("-l", "--motif_list", dest="motif_list", type="string",  default="",
+                         help="motif list file. If specified,  the program will only perform MotifScan only on the given motifs. Otherwise,  MotifScan will be performed on each motif provided in the compiled motif PWM file (specified by option -m). The motif list should be a subset of the available motifs in compile motif PWM file.")
+    optparser.add_option("-o", "--output", dest="output", type="string",
+                         help="Specify the output directory. If the directory is not exites,  program will create it. Default: motifscan_output_[Prefix_of_input_region_file]")
+
+    group = OptionGroup(optparser, 'Advanced Options')
+    group.add_option('-e', dest='is_enrichment', action='store_false', default=True,
+                     help="With this flag on,  MotifScan will not scan on the random control regions and not perform enrichment analysis.")
+    group.add_option('-s', dest='extract_target_site', action='store_true', default=False,
+                     help="With this flag on,  MotifScan will report target sequence and absolute position of each motif.")
+    group.add_option("-t", "--gene", dest="gene", type="string",
+                     help="Gene annotation is meaningful for generating random controls.If all regions are in the promoter region,  \
+then we can picked up random regions just from the gene promoters instead of the whole genome. \
+And it is believed that sequence characters on promoters are very differnt from those on whole genome. \
+Thus,  the gene annotation is an indispensable information. \
+However,  in most cases,  you do not need really give the gene annotation file explicitly. When you specify the genome name via option -g,  the corresponding gene annotation is automatically loaded unless you running MotifScan on your custom genome.")
+    group.add_option('-r', dest='region', type='string', default="genome",
+                     help="Analysis occurence regions. genome,  promoter,  distal.\n\
+genome: perform MotifScan on the all regions,  the default.\n\
+promoter: perform MotifScan on regions that only positioned at promoters.\n\
+distal: perform MotifScan on regions that only positioned at distals.\n\
+Default: genome")
+    group.add_option('--promoter_up', dest='upstream', type='int', default=4000,
+                     help="Only meaningful when option -r is promoter or distal. Define promoter regions: upstream distance to the TSS. Default: 4000")
+    group.add_option('--promoter_down', dest='downstream', type='int', default=2000,
+                     help="Only meaningful when option -r is promoter or distal. Define promoter regions: downstream distance to the TSS. Default: 2000")
+    group.add_option('--random_times', dest='random_times', type='int', default=5,
+                     help='The number of times that picking up the random regions depends on the number f regions you provided. By default,  it is 5 times. \
+                     For example,  you provided 1000 regions,  then 5000 random regions will be generated.. Default=5')
+    group.add_option('--peak_region', dest='peak_length', type='int', default=1000,
+                     help='The region length around region summit. If summit is not provided in the region file,  region midpoint is viewed as the summit. Default:1000')
+
+    optparser.add_option_group(group)
+    return optparser
+
+if __name__ == '__main__':
+    main()

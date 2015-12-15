@@ -1,0 +1,193 @@
+#!/usr/bin/env python
+#
+# Copyright @ 2014, 2015 Jiawei Wang <jerryeah@gmail.com>, Zhen Shao <shao@enders.tch.harvard.edu>
+#
+# Licensed under the GPL License, Version 3.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#   http://www.gnu.org/copyleft/gpl.html
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+""" MotifScan main executable.
+"""
+
+__authors__ = ['"Jiawei Wang" <jerryeah@gmail.com>']
+
+# -----------------------------------
+#  modules
+# -----------------------------------
+import os
+import os.path
+from optparse import OptionParser
+from optparse import OptionGroup
+import shutil
+import MotifScan
+import MotifScan.genome as genome
+import MotifScan.motifscan_general as motifscan_general
+
+# ----------------------------------
+#  main function
+# ----------------------------------
+
+
+def main():
+    """The pipeline of motif scanning
+    """
+    # ------------------------------------
+    # process the options
+    # ------------------------------------
+    parser = prepare_optparser()
+    (option, args) = parser.parse_args()
+
+    if not (option.peak and option.format and
+            option.genome_name and option.motif):
+        parser.print_help()
+        exit()
+
+    genome_name = option.genome_name
+    peak_path = option.peak
+    motif_path = option.motif
+    peak_format = option.format
+    motif_list_path = option.motif_list
+    random_times = option.random_times
+    peak_length = option.peak_length
+    is_enrichment = option.is_enrichment
+    extract_target_site = option.extract_target_site
+    region = option.region
+    up = option.upstream
+    down = option.downstream
+    if option.gene:
+        gene_path = option.gene
+    else:
+        gene_path = None
+    if not os.path.exists(peak_path):
+        print 'Error! Peak file not exist!: %s' % peak_path
+        exit(1)
+    if peak_format not in ['macs', 'manorm', 'bed3col', 'bed4col', 'bed5col']:
+        exit(4)
+    # if not option.gene and region != "genome":
+    #     print 'Error! You can assign region option only when gene annotation is provided.'
+    #     exit()
+    if not option.output:
+        output_dir = os.getcwd() + '/' + 'motifscan_output_' + os.path.splitext(os.path.basename(peak_path))[0]
+    else:
+        output_dir = option.output
+
+    # ------------------------------------
+    #  Initializing the esseential data
+    # ------------------------------------
+    print 'Initializing MotifScan data files...'
+    global_gene_dat_dir = '%s/gene' % os.path.dirname(os.path.realpath(MotifScan.__file__))
+    user_home = os.environ['HOME']
+    user_motifscan_db_dir = '%s/.MotifScan' % user_home
+    user_genome_dat_dir = '%s/genome' % user_motifscan_db_dir
+    user_gene_dat_dir = '%s/gene' % user_motifscan_db_dir
+    if not os.path.exists(user_motifscan_db_dir):
+        try:
+            os.mkdir(user_motifscan_db_dir)
+            shutil.copytree(global_gene_dat_dir, user_gene_dat_dir)
+            os.mkdir(user_genome_dat_dir)
+        except (KeyboardInterrupt, SystemExit):
+            print 'Data initialization interupted by user. Rolling back...'
+            shutil.rmtree(user_motifscan_db_dir)
+            raise
+        except Exception, e:
+            print e
+            print 'Data initialization failed. Rolling back...'
+            shutil.rmtree(user_motifscan_db_dir)
+
+    # assert genome database exists
+    if not os.path.exists('%s/%s' % (user_genome_dat_dir, genome_name)):
+        if not option.genome_sequence:
+            raise Exception('%s sequence has not been compiled before this run, option -G is required.' % genome_name)
+        else:
+            try:
+                genome_path = option.genome_sequence
+                genome_db_path = '%s/%s' % (user_genome_dat_dir, genome_name)
+                os.mkdir(genome_db_path)
+                print 'Parsing genome sequence: %s...' % genome_path
+                background = genome.compute_genome_background(genome_path)
+                background.to_pickle('%s/background' % genome_db_path)
+                background = background['background']
+
+                chromosome_size = genome.compute_genome_size(genome_path)
+                chromosome_size.to_pickle('%s/chromosome_size' % genome_db_path)
+                chromosome_size.to_csv('%s/chromosome_size.txt' % genome_db_path, sep='\t', header=False, index=False)
+                genome.split_genome(genome_path, genome_db_path)
+            except (KeyboardInterrupt, SystemExit):
+                print 'Genome parsing interrupted by user. Rolling back...'
+                shutil.rmtree(genome_db_path)
+                raise
+            except Exception, e:
+                print e
+                print 'Genome parsing failed. Rolling back...'
+                shutil.rmtree(genome_db_path)
+    # ------------------------------------
+    #    run the motif scan
+    # ------------------------------------
+    motifscan_general.motifscan_general(peak_path, peak_format, motif_path, motif_list_path,
+                                        genome_name, gene_path, random_times,
+                                        peak_length, output_dir,
+                                        region, up, down, is_enrichment, extract_target_site)
+
+
+def prepare_optparser():
+    usage = "usage: %prog <-p peak>  <-g genome> <-m motif> [options]"
+    description = "%prog 1.0.4 -- Motif Discovery Program"
+    optparser = OptionParser(version="%prog 1.0.4", description=description, usage=usage, add_help_option=False)
+    optparser.add_option("-h", "--help", action="help", help="show this help message and exit")
+    optparser.add_option("-p", "--peak", dest="peak", type="string",
+                         help="region file. MotifScan is occurred in the regions specified in this file. It is a customized bed format file. bed5col is default format,  but you can also assign your region file format by option -f (see option -f for details). Required.")
+    optparser.add_option("-m", "--motif", dest="motif", type="string",
+                         help="compiled motif PWM file. Motif matrix file including pvalue cutoff and perfect ratio. Required.")
+    optparser.add_option("-g", "--genome", dest="genome_name", type="string",
+                         help="genome identifier. Please use UCSC genome identifier if possible. Now MotifScan pre-compiled the following genome,  hg19,  mm9,  tair10. You can specify other genomes by command MotifCompile. Required.")
+    optparser.add_option("-f", "--format", dest="format", type="string", default="bed5col",
+                         help="region file format. Default: bed5col. Options: macs,  manorm,  bed3col,  bed4col,  bed5col")
+    optparser.add_option("-G", "--gs", dest="genome_sequence", type="string",
+                         help="genome sequence file(.fa or .fastq). If the genome information is not provided,  you should specify the genome sequence file (.fa) by this option.")
+    optparser.add_option("-l", "--motif_list", dest="motif_list", type="string",  default="",
+                         help="motif list file. If specified,  the program will only perform MotifScan only on the given motifs. Otherwise,  MotifScan will be performed on each motif provided in the compiled motif PWM file (specified by option -m). The motif list should be a subset of the available motifs in compile motif PWM file.")
+    optparser.add_option("-o", "--output", dest="output", type="string",
+                         help="Specify the output directory. If the directory is not exites,  program will create it. Default: motifscan_output_[Prefix_of_input_region_file]")
+    group = OptionGroup(optparser, 'Advanced Options')
+    group.add_option('-e', dest='is_enrichment', action='store_false', default=True,
+                     help="With this flag on,  MotifScan will not scan on the random control regions and not perform enrichment analysis.")
+    group.add_option('-s', dest='extract_target_site', action='store_true', default=False,
+                     help="With this flag on,  MotifScan will report target sequence and absolute position of each motif.")
+    group.add_option("-t", "--gene", dest="gene", type="string",
+                     help="Gene annotation is meaningful for generating random controls.If all regions are in the promoter region,  \
+then we can picked up random regions just from the gene promoters instead of the whole genome. \
+And it is believed that sequence characters on promoters are very differnt from those on whole genome. \
+Thus,  the gene annotation is an indispensable information. \
+However,  in most cases,  you do not need really give the gene annotation file explicitly. When you specify the genome name via option -g,  the corresponding gene annotation is automatically loaded unless you running MotifScan on your custom genome.")
+    group.add_option('-r', dest='region', type='string', default="genome",
+                     help="Analysis occurence regions. genome,  promoter,  distal, gene1, gene2\n\
+genome: perform MotifScan on the all regions,  the default.\n\
+promoter: perform MotifScan on regions that only positioned at promoters.\n\
+distal: perform MotifScan on regions that only positioned at distals.\n\
+gene1: perform MotifScan only on the gene targeted peak (nearest distance to the target gene). \n\
+gene2: perform MotifScan only on the gene targeted peak (maximal score). \n\
+Default: genome")
+    group.add_option('--promoter_up', dest='upstream', type='int', default=4000,
+                     help="Only meaningful when option -r is promoter or distal. Define promoter regions: upstream distance to the TSS. Default: 4000")
+    group.add_option('--promoter_down', dest='downstream', type='int', default=2000,
+                     help="Only meaningful when option -r is promoter or distal. Define promoter regions: downstream distance to the TSS. Default: 2000")
+    group.add_option('--random_times', dest='random_times', type='int', default=5,
+                     help='The number of times that picking up the random regions depends on the number f regions you provided. By default,  it is 5 times. \
+                     For example,  you provided 1000 regions,  then 5000 random regions will be generated.. Default=5')
+    group.add_option('--peak_region', dest='peak_length', type='int', default=1000,
+                     help='The region length around region summit. If summit is not provided in the region file,  region midpoint is viewed as the summit. Default:1000')
+
+    optparser.add_option_group(group)
+    return optparser
+
+if __name__ == '__main__':
+    main()

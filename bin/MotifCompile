@@ -1,0 +1,121 @@
+#!/usr/bin/env python
+#
+# Copyright @ 2014, 2015 Jiawei Wang <jerryeah@gmail.com>, Zhen Shao <shao@enders.tch.harvard.edu>
+#
+# Licensed under the GPL License, Version 3.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#   http://www.gnu.org/copyleft/gpl.html
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+"""Description: genome background simulation
+"""
+# -------------------------------------
+# modules
+# -------------------------------------
+import os
+import os.path
+from optparse import OptionParser
+import pandas as pd
+import sys
+import MotifScan.genome as genome
+import MotifScan.motif as motif
+import shutil
+
+
+#-----------------------------------
+# main function
+# ----------------------------------
+def main():
+    """The pipeline of motif scanning
+    """
+    # process the options
+    # ------------------------------------
+    parser = prepare_optparser()
+    (option, args) = parser.parse_args()
+
+    if not (option.genome and option.motif and option.genome_name):
+        parser.print_help()
+        sys.exit(0)
+
+    genome_path = option.genome
+    genome_name = option.genome_name
+    raw_motif_path = option.motif
+    user_home = os.environ['HOME']
+    genome_db_path = '%s/.MotifScan/genome/%s' % (user_home, genome_name)
+    output_file_prefix = option.output
+    if output_file_prefix == "":
+        output_file_prefix = '%s_%s' % (genome_name, os.path.splitext(os.path.basename(raw_motif_path))[0])
+
+    simulation_times = 1000000
+    print '#########################################################'
+    print '                 Data Preparation'
+    print '#########################################################'
+    if os.path.exists(genome_db_path):
+        print 'The genome "%s" already exists in the genome database. Using the existing genome.' % genome_name
+        print 'Loading genome information...',
+
+        background = pd.read_pickle('%s/background' % genome_db_path)['background']
+        chromosome_size = pd.read_pickle('%s/chromosome_size' % genome_db_path)
+        chromosome_size.to_csv('%s/chromosome_size.txt' % genome_db_path, sep='\t', header=False, index=False)
+        print 'Done!'
+    else:
+        try:
+            os.mkdir(genome_db_path)
+            print 'Parsing genome...',
+            background = genome.compute_genome_background(genome_path)
+            background.to_pickle('%s/background' % genome_db_path)
+            background = background['background']
+
+            chromosome_size = genome.compute_genome_size(genome_path)
+            chromosome_size.to_pickle('%s/chromosome_size' % genome_db_path)
+            chromosome_size.to_csv('%s/chromosome_size.txt' % genome_db_path, sep='\t', header=False, index=False)
+            genome.split_genome(genome_path, genome_db_path)
+            print 'Done!'
+        except (KeyboardInterrupt, SystemExit):
+            print 'Genome parsing interrupted by user. Rolling back...'
+            shutil.rmtree(genome_db_path)
+            raise
+        except Exception, e:
+            print e
+            print 'Genome parsing failed. Rolling back...'
+            shutil.rmtree(genome_db_path)
+
+    print 'Loading raw motif matrices...',
+    motif_table = motif.load_motif_matrix(raw_motif_path)
+    print '%s motifs are recognized!' % len(motif_table)
+    print 'Computing perfect ratio score...',
+    motif_table = motif.compute_max_score(motif_table, background)
+    print 'Done!'
+    print '#########################################################'
+    print '                Simulation'
+    print '#########################################################'
+    print 'Simulation starting...'
+    motif_table = motif.simulation(motif_table, simulation_times, genome_db_path, chromosome_size, background)
+    motif.write_motif_table(motif_table, output_file_prefix)
+
+
+def prepare_optparser():
+    usage = "usage: %prog  <-G genome> <-g genome_name> <-M motif>"
+    description = "%prog -- Compile the motif matrix and perform background simulation"
+
+    optparser = OptionParser(version="%prog 1.0.4", description=description, usage=usage, add_help_option=False)
+    optparser.add_option("-h", "--help", action="help", help="show this help message and exit")
+    optparser.add_option("-M", dest="motif", type="string",
+                         help="The motif raw matrix file. Required")
+    optparser.add_option("-g", dest="genome_name", type="string",
+                         help="Specify the genome a identifier.e.g hg19, mm9. Required")
+    optparser.add_option("-G", dest="genome", type="string",
+                         help="The genome sequence file. Required")
+    optparser.add_option("-o", "--output", dest="output", type="string", default="",
+                         help="Output file prefix.")
+    return optparser
+
+if __name__ == '__main__':
+    main()
