@@ -19,7 +19,7 @@ import re
 import os
 import os.path
 from scipy import signal
-import peak
+import MotifScan.peak as peak
 import time
 import shutil
 import sys
@@ -103,7 +103,6 @@ def load_motif(motif_list_path, motif_path):
         return motif_table
     motif_list = pd.read_csv(motif_list_path, header=None, names=['motif'])['motif'].tolist()
     motif_list = list(set(motif_list)) #remove duplicate
-    motif_idx = []
     motif_db_name = motif_table['name'].tolist()
     motif_table_filter = None
     for motif in motif_list:
@@ -115,7 +114,7 @@ def load_motif(motif_list_path, motif_path):
             elif len(tmp_motif) > 1:
                 for idx, mtf in tmp_motif.iterrows():
                     tmp_motif.loc[idx,'name'] = '%s_%s'%(mtf['name'] ,idx)
-            if motif_table_filter:
+            if isinstance(motif_table_filter,pd.DataFrame):
                 motif_table_filter = motif_table_filter.append(tmp_motif)
             else:
                 motif_table_filter = pd.DataFrame(tmp_motif)

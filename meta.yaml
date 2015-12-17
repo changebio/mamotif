@@ -1,0 +1,37 @@
+package:
+  name: motifscan
+  version: "1.0.4"
+
+source:
+#  fn: pyinstrument-0.13.1.tar.gz
+#  url: https://pypi.python.org/packages/source/p/pyinstrument/pyinstrument-0.13.1.tar.gz
+#  md5: e347036acc50720c0903dc2221b2605d
+#  patches:
+   # List any patch files here
+   # - fix.patch
+
+
+requirements:
+  build:
+    - python
+    - setuptools
+
+  run:
+    - python
+
+
+  # You can also put a file called run_test.py in the recipe that will be run
+  # at test time.
+
+  # requires:
+    # Put any additional test requirements here.  For example
+    # - nose
+
+about:
+  home: https://github.com/changebio/motifscan
+  license: BSD License
+  summary: u"A call stack profiler for Python. Inspired by Apple's Instruments.app"
+
+# See
+# http://docs.continuum.io/conda/build.html for
+# more information about meta.yaml

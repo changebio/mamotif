@@ -1,0 +1,19 @@
+Metadata-Version: 1.1
+Name: MotifScan
+Version: 1.0.4
+Summary: A motif discovery package developed by Shao lab in SIBS, CAS
+Home-page: http://bioinfo.sibs.ac.cn/shaolab/motifscan
+Author: Jiawei Wang
+Author-email: jerryeah@gmail.com
+License: UNKNOWN
+Description: UNKNOWN
+Platform: UNKNOWN
+Classifier: Development Status :: 3 - Alpha
+Classifier: Enviroment :: Console
+Classifier: Intended Audience :: Science/Research 
+Classifier: Intended Audience :: Education 
+Classifier: License :: OSI Approved :: GNU General Public License v3 (GPLv3)
+Classifier: Operating System :: POSIX :: Linux
+Classifier: Operating System :: Unix
+Classifier: Programming Language :: Python
+Classifier: Topic :: Scientific/Engineering :: Bio-Informatics

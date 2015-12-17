@@ -1,0 +1,234 @@
+MotifScan Manual 
+(version 1.0.1)
+2015-02-06
+
+
+1. Introduction
+Motifscan is a precise and easy use motif discovery package based on given motifs. Is is noticable that MotifScan is not a de novo motif discovery tool. Basically, MotifScan implements the probabilistic model based on position weight matrix (PWM): the score of motif A is calculated as the ratio of As probability of occurrence on the target sequence and its probability of occurrence on the genome background. The target sequence can finally be defined as the motif A target sequence when the score is beyond the score threshold, which is from the distribution of motif A scores calculated on the whole genome sequence.
+
+
+
+
+2 Download and Installation
+You can download from the source package on from:  http://bioinfo.sibs.ac.cn/shaolab/opendata.php.
+
+Then extract the package and build from the source:
+
+tar -zxvf MotifScan_*.*.*.tar.gz
+
+cd MotifScan_*.*.*
+python setup install
+
+or use option --prefix to specify the location you want to install.
+
+python setup install --prefix=/home/jiawei
+NOTE:
+In this scenario, you should add your installation directory to PYTHONPATH and bash PATH:
+export PYTHONPATH=/home/jiawei/lib/python2.7/dist-packges:$PYTHONPATH
+
+export PATH=/home/jiawei/bin:$PATH
+
+
+Here is a more convenient way to install the package:
+
+pip install MotifScan
+
+
+
+3 MotifScan
+MotifScan is generally performed by 3 steps:
+Step 1 motif discovery on regions given by region file
+Step 2 motif discovery on random regions
+Step 3 find out the enriched motifs
+
+For the fisrt time running MotifScan: 
+A MotifScan common task requires several data files (motif information, genome information and gene information), motif information and gene information are included in our packages. When you run the motifscan on the genome for the first time, a directory(.MotifScan) that storing above information will be created in your home directory. Under that directory, all the pre-compiled motifs and gene annotation are contained except the genome information.
+
+Thus, you should specify the genome sequence file(.fa or .fasta) via option -G when you run the MotifScan for the first time to compile the genome information. After that, if you want to do MotifScan again on this genome, option -G can be omitted because the genome information has been stored under the .MotifScan directory.
+
+The directory is organized like this:
+.MotifScan/
+motif
+genome
+gene
+
+Take hg19 as an example, after your initial motif scanning, compiled motifs information is located under .MotifScan/motif/hg19/, gene annotation is located under .MotifScan/gene/hg19/ and genome information is located under .MotifScan/genome/hg19/. User can explore all the data accessible by command MotifScan -ls (see details in the following part.)
+
+3.1 Command Line
+MotifScan -p Example/SL2548_Peaks.bed -m Example/ motif_list_example.txt -g hg19 [-G hg19.fa]
+
+Note: -G option is required if you run the command on hg19 for the second time.
+
+
+
+3.2 Options
+-p region file. MotifScan is occurred in the regions assigned in this file. It is a customized bed format file. bed5col is default format, but you can also assign your region file format by option –f (see option -f for details)
+
+-m motif list. One motif name per line, the file should be like this:
+e.g.
+Pou5f1
+SOX10
+ARID3A
+Prrx2
+Sox5
+NFIC
+Sox2
+POU2F2
+TEAD1
+Sox3
+---EOF---
+
+-g genome name. Now MotifScan pre-compiled the following genome, hg19, mm9, tair10 ,msu7.
+You can compile other genomes by command MotifCompile.
+
+-G genonme sequence. If the genome information is not provided, you should assign the genome sequence file(.fa) by this option.
+
+-f region file format. Default: bed5col
+
+MotifScan supports region files in 5 formats:
+1. bed3col: a 3-column bed file, representing chromosome, start and end respecteively. It the simplest format containing least information.
+e.g.
+chr1 1711300 1711875
+chr1 2179623 2180121
+chr1 4717268 4717738
+chr1 5285608 5286259
+chr1 5327637 5327962
+
+2. bed4col: a 4-column bed file, one more column representing region summit than bed3col. The
+summit value is the relative distance to the start site.
+e.g.
+chr1 1711300 1711875 288
+chr1 2179623 2180121 249
+chr1 4717268 4717738 235
+chr1 5285608 5286259 326
+chr1 5327637 5327962 163
+
+3. bed5col: a 5-column bed file, one more column representing some statistics (like pvalue in MACS or mvalue in MAnorm) than bed4col.
+e.g.
+chr1 1711300 1711875 288 442.69
+chr1 2179623 2180121 249 118.61
+chr1 4717268 4717738 235 137.59
+chr1 5285608 5286259 326 238.79
+chr1 5327637 5327962 163 224.29
+
+4. manorm: it is a manorm file usually with mvalue column.
+e.g.
+chr start end summit MAnorm Mvalue MAnorm Avalue MAnorm Pvalue common or unique
+chrY 2653916 2656315 1172 6.76 2.38 2.05e-15 H1hesc H3k4me3 Bro
+chrY 2709282 2711375 683 7.30 2.65 8.93e-23 H1hesc H3k4me3 Bro
+chrY 2801707 2804982 2024 7.15 2.57 2.05e-20 H1hesc H3k4me3 Bro
+
+5. macs: it is peak file called by MACS, usually with pvalue column.
+e.g.
+chr start end length summit tags -10*log10(pvalue) fold enrichment FDR
+chr1 27644 30246 2603 1257 375 1609.14 19.29 0.14
+chr1 540240 541130 891 516 24 59.25 6.12 10.98
+chr1 712921 715877 2957 973 384 2813.05 46.96 0.10
+chr1 761379 763880 2502 1094 332 2005.89 34.28 0.14
+chr1 838832 839681 850 639 24 62.84 6.68 9.29
+
+Basically, they are all bed files and bed3col, bed4col, bed5col format does not have the header line.
+
+-o output directory. If not specified, the default output directory would be motifscan output [prefix of motifscan file name
+
+3.3 Advanced Options
+[enrichment analysis options]
+-e enrichment flag. With this flag on, MotifScan program will only perform step 1, that is not performing enrichment analysis.
+
+-t gene annotation file. Gene annotation is meaningful for generating random controls in step 2.
+
+For example, if all regions are in the promoter region, then we can picked up random regions just from the gene promoters instead of the whole genome. And it is believed that sequence characters from promoters are very differnt from those from whole genome. Thus the gene annotation is an indispensable information. However, in most cases, you do not need really give the gene annotation file explicitly. When you assign the genome name via option -G, the corresponding gene annotation is automatically loaded unless you running MotifScan on your custom genome.
+
+--random_times. The number of times that picking up the random regions depends on the number f regions you provided. By default, it is 5 times. For example, you provided 1000 regions, then 5000 random regions will be generated
+
+[search region options]
+-r
+genome: perform MotifScan on the all regions, the default.
+promoter: perform MotifScan on regions that only positioned in promoters
+distal: perform MotifScan on regions that only positioned in distals
+
+--promoter_up Define promoter regions: upstream distance to TSS. Default: 4000 
+--promoter_down Define promoter regions: downstream distance to TSS. Default: 2000
+
+--peak_length By default, MotifScan program scans actual region that extending 500 bp from the summit of the assigned region in both directions. That is 1001bp. You can specify the extended length by yourself, for example change the extended length to 200bp, then actual searching length would be 401bp.
+
+--pvalue cutoff The pvalue that defines a motif target. 3, 4, 5 are valid value and 4 is the default,which means that the cutoff significance level is 10ˆ-4. Similarily, 3 represents the significance level is 10ˆ-3 and 5 represents the significance level is 10ˆ-5. In other words, 5 represents the stringest motif score cutoff while 3 represents the loosest motif score cutoff.
+
+3.4 Result Interpretation
+motif_enrichment.csv
+All motifs are listed sorted by enrichment pvalue in the ascending order.
+columns	 motif name
+name	 motif name
+target number	 motif targets number on the regions that user specified
+rnd target number	 motif target number on the random regions
+fold change	 fold change of target number and the rnd target number
+enrich pvalue	 fisher exact test right tail pvalue	
+deplete pvalue	 fisher exact test left tail pvalue
+pvalue corrected	 bonferroni corrected pvalue
+e.g.
+name target number rnd target number fold change enrich pvalue deplete pvalue pvalue corrected
+TAL1::GATA1 274.0 1214.0 1.12 0.033 0.971 0.067
+TAL1::TCF3 269.0 1335.0 1.007 0.464 0.562 0.929
+
+peak_motif_score.csv
+The table can be divided into two parts, the first 5 columns are the region information part which briefly derived from the region file that user specified and the second part is the motif score information. Each motif has a score measuring the binding affinity for each region sequence. For example, 
+chr1 1711300 1711875 1711588 442.69 0.18 0.33 
+chr1 2179623 2180121 2179872 118.61 0.23 0.43
+chr1 4717268 4717738 4717503 137.59 0.24 0.47 
+motif score is the measurement of the probability of the motif occurrence, that is the binding affinity of this motif on the site.
+
+peak_motif_tarnum.csv
+It is a also detail information table for each region’s motif target number for each motif. The file structure is similar to the peak_motif_score.csv, except the bold font represents the motif target number instead of the motif score.
+chr1 1711300 1711875 1711588 442.69 2  0 
+chr1 2179623 2180121 2179872 118.61 1  1 
+chr1 4717268 4717738 4717503 137.59 0  1 
+
+motif target sites/	
+The directory contains all the motif target site information of all candidate motifs. Each motif forms an independent file that named after [motif_name]_target_site.txt. The fisrt 3 columns are the motif target site coordinate on the genome. The 4th column is the corresponding target sequence and the motif score of the this motif occurrence is indicated in the last column
+e.g. The motif target site of TAL1::GATA1
+chr1 23684182 23684200 ATTATCATTTCAGTGCAC 0.57
+chr1 34861644 34861662 CTGTTTCTGGAAGATATT 0.54
+chr1 36020693 36020711 CTGCATTCAACAGATACT 0.56
+chr1 38519329 38519347 CAGGATCAAGCTGATAAA 0.54
+chr1 39419693 39419711 CTTATCTTCTATCAACAG 0.73
+chr1 53301859 53301877 TTTATCTTCTAGTCCCAC 0.58
+chr1 64197272 64197290 CCTATCACGGGAGAACAG 0.75
+chr1 64938769 64938787 TTTATCTCCTCCCAACTG 0.56
+
+plot/*
+Under this directory, graphs for each motif will be generated.
+motif name target site.png, if no enrichment analysis is performed
+motif name tarsite_fc_dist.png, a composite graph containing distribution of motif target site and distributon of fold change across peaks, if enrichment analysis is performed.
+
+
+
+
+
+4 MotifCompile	
+You can use MotifCompile to build your own motif and genome data.
+MotifCompile extracts 100,000 regions from whole genome, and calculated motif score on for each motif on each region, this step is called simulation, which is usually time-consuming. Meanwhile, each motif ’s raw matrix are normalized, consensus sequence are generated, genome background and chromosome are calculated, which are essential information for our MotifScan task.
+4.1 Command Line
+MotifCompile -M jaspar_ver.txt -g hg19 [-G hg19.fa]
+4.2 Options
+-G genome sequence file. The option can be omitted when the genome has been built previously.
+-g name of your genome. If the genome name already exists in the MotifScan data set. MotifCompile will try to find the associated genome sequence automatically. Thus, above option –G can be omitted in this case.
+
+
+-M motif PWM file. The matrix should follow the JASPAR raw motif matrix format, that is: each motif id followed by a motif name (separated by tab), they are in a line started by ‘>’ and the matrix is like this:
+3976	1495	0	13819	0	0	0	0	10453	0	2184
+2073	4490	13819	0	4863	0	0	0	745	9929	6633
+7125	1909	0	0	1370	13819	0	13819	2568	729	455
+645	5925	0	0	7586	0	13819	0	53	3161	4547
+4 rows represent A, C, G, T while columns represent the base positions, elements are separated by tab.
+4.3 Result Interpretation
+When the MotifCompile Command finished, you can use MotifList to check whether the genome and motifs have been added to your MotifScan dataset.
+
+
+5 MotifList
+5.1 Command Line
+MotifList -g
+or
+MotifList -m hg19
+5.2 Options
+-g list all the supported genomes
+-m list all the supported motifs for specified genome

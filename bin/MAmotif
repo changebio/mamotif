@@ -95,7 +95,7 @@ def main():
                                     'common_or_unique',
                                     'A_read_density',
                                     'B_read_density'],
-                             skiprows=1)
+                             skiprows=2)
     grouped = total_peak.groupby('common_or_unique')
     if len(grouped) != 3:
         print 'Invalid MAnorm result: There should be three type of peaks \
@@ -106,7 +106,7 @@ def main():
     # prepare the common and biased peak files.
     for name, group in grouped:
         # common peaks
-        if reg.search(r'.*_common_peak', name):
+        if reg.search(r'.*_peak', name):
             common_peak_path = '%s/.%s.txt' % (overall_output_dir, name)
             group.to_csv(common_peak_path,
                          sep='\t',
@@ -342,7 +342,6 @@ Default: genome")
                      For example,  you provided 1000 regions,  then 5000 random regions will be generated.. Default=5')
     group.add_option('--peak_region', dest='peak_length', type='int', default=1000,
                      help='The region length around region summit. If summit is not provided in the region file,  region midpoint is viewed as the summit. Default:1000')
-
     optparser.add_option_group(group)
     return optparser
 
