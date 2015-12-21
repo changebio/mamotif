@@ -67,7 +67,7 @@ def motifscan_general(peak_path, peak_format, motif_path,
     # -------------------------------------------------------------------------
     #  read basic information: genome, motif and gene annotation
     # -------------------------------------------------------------------------
-    user_home = os.environ['HOME']
+    user_home = "/picb/rsgeno/huangyin"
 
     genome_db_path = '%s/.MotifScan/genome/%s' % (user_home, genome_name)
     if gene_path is None and os.path.exists('%s/.MotifScan/gene/%s' % (user_home, genome_name)):
@@ -108,7 +108,7 @@ def motifscan_general(peak_path, peak_format, motif_path,
     print 'Done! %d peaks are processed!' % len(peak_table)
 
     if region in ['promoter','distal']:
-        if not gene_table:
+        if not isinstance(gene_table,pd.DataFrame):
             print "Gene annotation file is required."
             exit()
         print 'Split promoter/distal regions...',
@@ -141,7 +141,7 @@ def motifscan_general(peak_path, peak_format, motif_path,
             peak_table.reset_index(inplace=True)
             print '%s distal peaks extracted!' % len(peak_table)
     elif region in ['gene1', 'gene2']:
-        if not gene_table:
+        if not isinstance(gene_table,pd.DataFrame):
             print "Gene annotation file is required."
             exit()
         print 'Find peak regions target gene...'
