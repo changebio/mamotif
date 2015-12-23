@@ -106,8 +106,9 @@ def motifscan_general(peak_path, peak_format, motif_path,
     print 'Generating peak sequence...',
     peak_table = peak.load_peak(peak_path, genome_db_path, peak_length, peak_format)
     print 'Done! %d peaks are processed!' % len(peak_table)
+    
 
-    if region in ['promoter','distal']:
+    if region in ['promoter','distal','whole']:
         if not isinstance(gene_table,pd.DataFrame):
             print "Gene annotation file is required."
             exit()
@@ -124,22 +125,30 @@ def motifscan_general(peak_path, peak_format, motif_path,
                 promoter_end.append(gene_i['TSS']+down)
         gene_table['promoter_start'] = promoter_start
         gene_table['promoter_end'] = promoter_end
-        is_promoter = []
-        for i, peak_i in peak_table.iterrows():
-            is_promoter.append(0)
-            for j, gene_j in gene_table[gene_table['chr'] == peak_i['chr']].iterrows():
-                if (peak_i['start']-gene_j['promoter_end'])*(peak_i['end']-gene_j['promoter_start']) < 0:  # overlap with gene promoter
-                    is_promoter[i] = 1
-                    break
-        peak_table['is_promoter'] = is_promoter
+        is_promoter = pd.Series(np.zeros(len(peak_table),dtype=bool))
+        for chri in peak_table.chr.unique():
+            peak_table_chr = peak_table[peak_table.chr==chri]
+            gene_table_chr = gene_table[gene_table.chr==chri]
+            p_start_chr=np.tile(np.array([peak_table_chr.start]).transpose(),(1,len(gene_table_chr)))
+            g_start_chr = np.tile(gene_table_chr.promoter_start,(len(peak_table_chr),1))
+            p_end_chr = np.tile(np.array([peak_table_chr.end]).transpose(),(1,len(gene_table_chr)))
+            g_end_chr = np.tile(gene_table_chr.promoter_end,(len(peak_table_chr),1))
+            start_chr = p_start_chr<g_end_chr
+            end_chr = p_end_chr > g_start_chr
+            index = start_chr==end_chr
+            is_promoter[peak_table.chr==chri] = index.sum(axis=1)!=0
+        peak_table['is_promoter']=is_promoter
+
         if region == 'promoter':
-            peak_table = peak_table.ix[peak_table['is_promoter'] == 1]
+            peak_table = peak_table.ix[peak_table['is_promoter']]
             peak_table.reset_index(inplace=True)
             print '%s promoter peaks extracted!' % len(peak_table)
-        else:
-            peak_table = peak_table.ix[peak_table['is_promoter'] == 0]
+        elif region == 'distal':
+            peak_table = peak_table.ix[~peak_table['is_promoter']]
             peak_table.reset_index(inplace=True)
             print '%s distal peaks extracted!' % len(peak_table)
+        elif region == 'whole':
+            print '%s whole peaks extracted!' % len(peak_table)
     elif region in ['gene1', 'gene2']:
         if not isinstance(gene_table,pd.DataFrame):
             print "Gene annotation file is required."
@@ -166,6 +175,9 @@ def motifscan_general(peak_path, peak_format, motif_path,
     peak_result.to_csv(peak_motif_tarnum, index=False, header=True, cols=tarnum_col)
     peak_result.to_csv(peak_motif_score, index=False, header=True, cols=score_col, float_format='%.2f')
     #peak_result.to_pickle("%s/peak_result.pkl" % output_dir) # only for testing
+    if region == 'whole':
+        peak_result["common_or_unique"] = peak_table.common_or_unique
+        peak_result["is_promoter"] = peak_table.is_promoter
     if extract_target_site:
         export_target_site_info(motif_table, peak_result, genome_db_path, tmp_dir, motif_tarsite_out_dir)
 
@@ -188,7 +200,7 @@ def motifscan_general(peak_path, peak_format, motif_path,
     if is_enrichment and len(peak_table) >= 50:
         print 'Generating random control based on %s %s peaks...' % (len(peak_table), region),
         sys.stdout.flush()
-        if gene_table:
+        if isinstance(gene_table,pd.DataFrame):
             rnd_table = peak.generate_random_with_ref2(gene_table, peak_table, genome_db_path, random_times)
         else:
             rnd_table = peak.generate_random_without_ref(peak_table, genome_db_path,  chromosome_size, random_times)
